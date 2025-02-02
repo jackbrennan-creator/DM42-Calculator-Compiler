@@ -1,0 +1,8 @@
+program gcd()
+{
+  var a = 36;
+  var b = 24;
+  while (a != b)
+    if (a > b) a = a - b;
+    else       b = b - a;
+}

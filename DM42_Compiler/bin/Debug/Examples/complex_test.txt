@@ -1,0 +1,4 @@
+program complex_test(a, b)
+{
+  return complex(a^2, sin(b));
+}

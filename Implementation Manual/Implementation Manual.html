@@ -1,0 +1,571 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" lang="" xml:lang="">
+<head>
+  <meta charset="utf-8" />
+  <meta name="generator" content="pandoc" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes" />
+  <title>Implementation Manual</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header id="title-block-header">
+<h1 class="title">Implementation Manual</h1>
+</header>
+<h2>DM42 Calculator Compiler Implementation</h2>
+<h3>Introduction</h3>
+<p>This compiler translates high-level language programs into keystrokes
+for the DM42 calculator. These programs will run on unmodified DM42
+calculators – no firmware flashing required. Most programs will also run
+on the Free42 emulator provided they do not use any unsupported DM42
+extensions. Compiled programs make use of the DM42's extended stack mode
+(NSTK). "Dynamic Stack Extension" should be enabled in the calculator's
+settings.</p>
+<p>The compiler is implemented using the “parsable objects” library
+described <a href='https://github.com/jackbrennan-creator/Simple-Reflexive-Parsing'>here</a>. Compiler construction using this library
+involves writing neither a lexical analyser, nor a parser, but starts
+with the definition of the components of an Abstract Syntax Tree (AST)
+for the language to be compiled. The simplest way to understand the
+compiler's implementation is through an understanding of the processes
+applied in its development. This document describes these in detail.
+Note that the language implementation described below, is a simplified
+version of what the compiler actually implements and that the names used
+for various components are not necessarily the same as those used in the
+actual compiler. This document should be read in conjunction with the
+compiler user manual available <a href='https://github.com/jackbrennan-creator/DM42-Calculator-Compiler'>here</a>.</p>
+<h3>Conversional Compiler Construction</h3>
+<p>Development starts with the definition of a grammatical description
+of the source language to be compiled, i.e. its syntax. A lexical
+analyser, or tokenizer, is then constructed to turn a stream of
+characters into a stream of symbols called lexemes, which represent the
+primary elements of the language, e.g. identifiers, numbers, reserved
+words and punctuation symbols. A parser is then constructed based on the
+grammar for the language. This consumes a stream of lexemes in order to
+workout if it constitutes a valid program, and if so, which lexemes
+correspond to which parts of the grammar, e.g. an identifier followed by
+an equals sign, followed by further lexemes which form an expression, is
+an assignment statement. The parser does not care how identifiers are
+spelt as long as their appearance in the lexeme stream conforms with the
+grammar. Any sequences which do not conform with the grammar are flagged
+as syntax errors.</p>
+<p>Once the parser is able to recognise correct strings in the language,
+and to reject incorrect ones, it is time to add operations to construct
+an AST upon which all subsequent processing stages will depend, e.g.
+semantic analysis, code generation etc.</p>
+<h3>Compiler Construction Using Parsable
+Objects</h3>
+<p>In contrast to the above, the first thing to be defined is the
+structure of the AST. The parsable objects library will deduce the
+necessary lexical analyser and parsing operations directly from this.
+The AST documents how fundamental components of the language are
+assembled to form programs. The ontologies of most programming languages
+can be described in terms of a small number of categories, e.g.
+statements, expressions and declarations. In the language considered
+here, there are a number of different sorts of statement in the
+statement category, e.g. assignment statements, if statements, for
+statements etc. Components of the AST must be defined for each of
+these.</p>
+<p>The AST component required to represent assignment statements can be
+described by the following class.</p>
+<pre class="scroll">
+public class assignment_statement
+{
+  public string     id;
+  public expression value;
+}
+</pre>
+<p>Assuming a further definition of the class expression, this simply
+states that an assignment statement consists of a character string
+representing an identifier and an expression. It says nothing about how
+it will be written down in the source language. Because of this, an
+equally valid definition would be as shown below.</p>
+<pre class="scroll">
+public class assignment_statement
+{
+  public expression value;
+  public string     id;
+}
+</pre>
+<p>A complete AST definition must include such classes for all the
+different kinds of statements, expressions and declarations in the
+language.</p>
+<pre class="scroll">
+public class if_statement
+{
+  public expression condition;
+  public statement  then_action;
+  public statement  else_action;
+}
+public class for_statement
+{
+  public string     variable_identifier;
+  public expression initial_value;
+  public expression final_value;
+  public statement  controlled_statement;
+}
+...etc
+</pre>
+<p>At this stage it is convenient to express the fact that all these
+different sorts of statements are in fact part of the category of
+statements. Inheritance provides a mechanism for doing this. In the
+following example all the different statement classes are both nested
+within a statement class and inherit from it. Thus any operation which
+applies to statements in general can be applied to any of the more
+specific sorts of statement.</p>
+<pre class="scroll">
+public class statement
+{
+  public class assignment_statement: statement
+  {
+    public string     id;
+    public expression value;
+  }
+  
+  public class if_statement: statement
+  {
+    public expression condition;
+    public statement  then_action;
+    public statement  else_action;
+  }
+  public class for_statement: statement
+  {
+    public string     variable_identifier;
+    public expression initial_value;
+    public expression final_value;
+    public statement  controlled_statement;
+  }
+  ...etc
+}
+</pre>
+<p>The parsable objects library defines a class called “parsable”, and
+when properly defined, instances of any class which inherits from
+“parsable” can be produced by parsing a suitable source text. In order
+for this to work, the next step is to use the C# attribute mechanism to
+augment the AST classes to indicate how the corresponding elements of
+the language will be written down in the source. The following example
+shows one way this could be done for the assignment statement class.</p>
+<pre class="scroll">
+using parsable_objects;
+public class statement: parsable
+{ 
+  public class assignment_statement: statement
+  {
+    [Parse(1)     ] public identifier  id;
+    [Parse(2, &quot;=&quot;)] public punctuation equals;
+    [Parse(3)     ] public expression  value;
+    [Parse(4, &quot;;&quot;)] public punctuation semicolon;
+  }
+  …etc
+}
+</pre>
+<p>Notice that the statement class has been made to inherit from the
+"parsable" class provided by the passible objects library. This implies
+that all of the different sorts of statements will inherit from parsable
+too. In addition the "Parse" attribute, defined by the library, has been
+added to the original field definitions of the statement classes. Two
+extra fields of type "punctuation", also defined by the library, have
+been added. Further, the library type "identifier" has been substituted
+for "string" in the first field definition. Identifiers represent
+restricted strings of characters which conform to the usual rules for
+program identifiers, e.g. they must start with a letter, which is
+followed by further letters, digits and underscores.</p>
+<p>Before going into further details it should be pointed out that, if
+all the other AST classes, including "expression", are augmented in the
+same way, the parsable objects library will be able to parse objects of
+type statement as shown below. For a more detailed description of how it
+does this, see the passible object library documentation.</p>
+<pre class="scroll">
+try
+{
+  var s = parsable.parse&lt;statement&gt;(&quot;a = b + c * d;&quot;);
+}
+catch (parse_error error)
+{
+  //Tell the user what and where.
+}
+</pre>
+<p>The result of this would be an object of type assignment statement
+with its fields instantiated appropriately, i.e. the identifier field
+would refer to an identifier spelt "a", and the value field would refer
+to a hierarchy of objects of type expression representing "b + c *
+d".</p>
+<p>The meaning of the field attributes can now be described in more
+detail;</p>
+<pre class="scroll">
+    [Parse(1)     ] public identifier  id;
+    [Parse(2, &quot;=&quot;)] public punctuation equals;
+    [Parse(3)     ] public expression  value;
+    [Parse(4, &quot;;&quot;)] public punctuation semicolon;
+</pre>
+<p>Only fields marked with the Parse attribute are considered during
+parsing. A parsable class can define other fields, properties and
+methods which are not involved in the parsing process. The first
+parameter of Parse is always a sequence number telling the parser the
+order in which fields are required to appear regardless of the order in
+which they are defined. Further parameters may be added to Parse
+attributes according to the types of the fields with which they are
+associated. In the case of the punctuation field used in the assignment
+statement class, the string following the sequence number defines the
+punctuation characters the parser will look for in the source. To change
+from a C-style assignment to an Algol style assignment, the "="
+character would be replaced with ":=".</p>
+<p>A slightly more complex example is represented by the if statement
+class. It is shown below augmented with the attributes the parser will
+require to create objects of this type from a source text.</p>
+<pre class="scroll">
+public class if_statement: statement
+{
+  [Parse(1, &quot;if&quot;)] public reserved_word       if_word;
+  [Parse(2, &quot;(&quot;) ] public punctuation         open;
+  [Parse(3)      ] public expression          condition;
+  [Parse(4, &quot;)&quot;) ] public punctuation         close;
+  [Parse(5)      ] public statement           then_action;
+  [Parse(6)      ] public Optional&lt;else_part&gt; else_action;
+}
+public class else_part: parsable
+{
+  [Parse(1, &quot;else&quot;)] public reserved_word else_word;
+  [Parse(2)        ] public statement     else_statement;
+}
+</pre>
+<p>This example introduces the reserved word type defined by the
+library. Unlike the identifier type which will match any valid sequence
+of characters in the source text, it represents fixed sequences of
+characters which must be present in the source text, e.g. if, else, for,
+while, etc. The rest of the fields specify that the reserved word if
+must be followed by a valid expression enclosed in brackets which are
+then followed by a then action statement, optionally followed by an else
+action. When a field is defined by the generic library type Option, it
+indicates to the parser that the source text corresponding to the
+parameter type may be missing. Notice that the else part class inherits
+from parsable, but not from statement because, by themselves, else parts
+do not represent statements.</p>
+<p>The next two examples show how sequences of elements are described.
+The first example shows how a parameter list, which might follow a
+function name in an expression, can be defined. The intension here is to
+define source text consisting of a pair of brackets containing zero or
+more valid expressions, separated by commas, e.g. (x, y + 1,
+sin(z)).</p>
+<pre class="scroll">
+public class parameter_list: parsable
+{
+  [Parse(1, &quot;(&quot;) ] public punctuation      open;
+  [Parse(2, &quot;,&quot;) ] public List&lt;expression&gt; parameters;
+  [Parse(3, &quot;)&quot;) ] public punctuation      close;
+}
+</pre>
+<p>The parser will interpret the use of the generic collection type List
+as indicating that zero or more sequences of characters, representing
+its element type, may be present in the source text. The ", " character
+in the Parse attribute specifies that these must be separated by
+commas.</p>
+<p>The second example shows how a block of statements can be defined.
+The intension here is to define source text consisting of a pair of
+braces containing zero or more valid statements, e.g. { a = 1; b = 2; c
+= a + b; }. In this case there is no separator as the semicolons are
+part of the text for the individual statement types. Blocks themselves
+do not require a semicolon following them. Details such as the presence
+of declarations in blocks have been omitted here.</p>
+<pre class="scroll">
+public class block: statement
+{
+  [Parse(1, &quot;{&quot;)] public punctuation     open;
+  [Parse(2)     ] public List&lt;statement&gt; statements;
+  [Parse(3, &quot;}&quot;)] public punctuation     close;
+}
+</pre>
+<p>Notice that, in this case, the block class inherits from the
+statement class, and thus blocks may occur anywhere a statement is
+valid, e.g. as the then_action of an if statement. In addition, as no
+separator symbol is specified in the Parse attribute for the
+List&lt;statement&gt; field, the parser will not expect any separators
+to occur between statements.</p>
+<p>The AST for the DM42 high-level language is defined using the
+techniques demonstrated above. Altogether there are 6 classes
+representing declarations, including the structure of a program, 20
+classes representing statements and 17 classes representing expressions.
+Most of these are only 4 or 5 lines long excluding the class headers.
+Once all the AST classes are defined, complete programs can be parsed to
+produce specified ASTs as follows (in this example the error handling is
+omitted).</p>
+<pre class="scroll">
+var source = new source_reader(&lt;string, FileStream or StreamReader&gt;);
+var p = parsable.parse&lt;program&gt;(source);
+</pre>
+<p>The library provides a source_reader class which performs lexical
+analysis using the set of punctuation symbols and reserved words
+specified in the AST class definitions. It can accept input directly
+from a string, FileStream or a StreamReader. The AST produced by the
+parse operation will contain all the information present in the source
+and can be traversed to perform subsequent compilation operations, e.g.
+semantic analysis and code generation.</p>
+<h3>Semantic Analysis</h3>
+<p>C# provides two mechanisms which make adding processing stages to the
+existing AST classes very easy. The first of these is the partial class
+mechanism. In the following example, two declarations of the assignment
+statement class are shown. Declaring the same class twice in the same
+namespace is not allowed, but by adding the word partial before the word
+class, it is possible to have two, or more, definitions of the same
+class provided that fields, properties, methods, etc., are not
+duplicated between them (Visual Studio's forms designer uses this
+mechanism to separate automatically generated definitions from those
+added the the programmer).</p>
+<pre class="scroll">
+public partial class assignment_statement: statement
+{
+  [Parse(1)     ] public identifier  variable_id;
+  [Parse(2, &quot;=&quot;)] public punctuation equals;
+  [Parse(3)     ] public expression  value;
+  [Parse(4, &quot;;&quot;)] public punctuation semicolon;
+}
+public partial class assignment_statement: statement
+{
+  public variable_definition variable;
+}
+</pre>
+<p>In this case the first definition specifies the information needed by
+the parser. The second definition specifies the information as it might
+be required by a semantic analyser. The C# compiler simply collects all
+the parts of the two declarations together and behaves as if they were
+all written in the same place. However, from a program structuring
+viewpoint, this mechanism allows all the details of syntax specification
+to be kept separate from the details of semantic analysis, because the
+two class declarations may be placed in separated files.</p>
+<p>This mechanism becomes more powerful when it is combined with the use
+of C# interfaces. In its simplest form an interface may be used to
+define those methods which a class implementing it must provide,
+although other requirements may also be specified.</p>
+<pre class="scroll">
+interface analysable
+{
+  void analyse(program_data data);
+}
+</pre>
+<p>This interface specifies that any class implementing it must provide
+an analyse method which returns no result, but accepts a single
+parameter of type program data. Suppose the program data class provides
+operations for maintaining, amongst other things, a dictionary of all
+the named elements of a program, e.g. variables, functions and
+parameters. This would allow semantic analysis operations to look-up
+identifiers to find their corresponding definitions and to check that
+they are defined before they are used. If all the AST classes are made
+to implement the analysable interface, the details of analysing each
+language element can be encapsulated within the analyse method associate
+with its corresponding AST class. All of these methods would share
+access to the same program data object.</p>
+<p>The original syntax definitions in the assignment statement class,
+embedded in the statement class, can be augmented with the word
+partial.</p>
+<pre class="scroll">
+public partial class statement: parsable
+{ 
+  public class assignment_statement: statement
+  {
+    [Parse(1)     ] public identifier  variable_id;
+    [Parse(2, &quot;=&quot;)] public punctuation equals;
+    [Parse(3)     ] public expression  value;
+    [Parse(4, &quot;;&quot;)] public punctuation semicolon;
+  }
+  …etc.
+}
+</pre>
+<p>In a separate file, a further partial definition of the class can be
+created (see below). The statement class already inherits from the
+library's parsable class, and here it is added to the set of classes
+which implement the analysable interface. All of its subclasses,
+including the assignment statement class, inherit the requirement to
+implement the analysable interface. An analyse method can now be added
+to the assignment statement class, to override the analysis method of
+the parent statement class, and to perform the specific analysis
+required for assignment statements, i.e. retrieving the variable
+declaration associated with the identifier field, and analysing the
+expression field. A reference to the variable declaration referred to by
+the identifier is retained for later use by the code generation classes.
+This is equivalent to folding the AST into a graph and is important when
+nested scopes are allowed in a language.</p>
+<pre class="scroll">
+public partial class statement: analysable
+{ 
+  public class assignment_statement: statement
+  {
+    public variable_declaration variable;
+    public override void analyse(program_data data)
+    {
+      variable = data.get_variable_declaration(variable_id.spelling);
+      if (variable == null) throw new analysis_error(&quot;Undefined variable &quot; + id.spelling);
+      else value.analyse(data);
+    } 
+  }
+  …etc.
+  public virtual void analyse(program_data data)
+  {
+  }
+}
+</pre>
+<p>As a further example, here is the original definition of the if
+statement class made partial.</p>
+<pre class="scroll">
+public partial class if_statement: statement
+{
+  [Parse(1, &quot;if&quot;)] public reserved_word       if_word;
+  [Parse(2, &quot;(&quot;) ] public punctuation         open;
+  [Parse(3)      ] public expression          condition;
+  [Parse(4, &quot;)&quot;) ] public punctuation         close;
+  [Parse(5)      ] public statement           then_action;
+  [Parse(6)      ] public Optional&lt;else_part&gt; else_action;
+}
+public partial class else_part: parsable
+{
+  [Parse(1, &quot;else&quot;)] public reserved_word else_word;
+  [Parse(2)        ] public statement     else_statement;
+}
+</pre>
+<p>And here is its analysable definition. Notice how each analysis
+method arranges to analyse its sub-components, passing on a reference to
+the same program data object.</p>
+<pre class="scroll">
+public partial class if_statement: statement
+{
+  public override void analyse(program_data data)
+  {
+    condition.analyse(data);
+    then_action.analyse(data);
+    if (else_action.Defined) else_action.Value.analyse(data);
+  } 
+}
+public partial class else_part: analysable
+{
+  public void analyse(program_data data)
+  {
+    else_statement.analyse(data);
+  } 
+}
+</pre>
+<p>Again, if the processes illustrated above are repeated, filling in
+the implementations of all analyse methods of all the AST classes, the
+end result is a complete semantic analyser.</p>
+<h3>Code Generation</h3>
+<p>Code generation is implemented in much the same way as semantic
+analysis. First, a new interface is defined.</p>
+<pre class="scroll">
+interface generable 
+{
+  void generate(program_data data);
+}  
+</pre>
+<p>New partial class definitions can then be created for each AST class,
+and these can be made to implement the generable interface. Again, all
+these definitions can be grouped together a in new file. The generate
+methods can then be defined independently for each AST class, just as
+the analyse methods were implemented for the semantic analyser. As a
+result of this, each AST class will be parsable, analysable and
+generable. The following example shows how the assignment statement,
+nested within the statement class, might be made generable.</p>
+<pre class="scroll">
+public partial class statement: generable
+{ 
+  public class assignment_statement: statement
+  {
+    public override void generate(program_data data)
+    {
+      value.generate(data);
+      data.output.write_store(variable.register);
+    } 
+  }
+  …etc.
+  public virtual void generate(program_data data)
+  {
+  }
+}
+</pre>
+<p>This definition is based on a number of assumptions. Firstly, that
+during the analysis of variable declarations, not described here, a
+calculator register is allocated to store each declared variable.
+Secondly, that the program data class provides an output stream for
+writing keystrokes via a set of methods corresponding to calculator
+functions. In this case, if the value of the register field is 1, it
+should write STO 01. Thirdly, that the keystrokes generated for the
+value expression will result in its value being left of the stack.</p>
+<p>The next example shows how keystrokes for an if statement might be
+generated. The assumptions made here are that the program data object
+can allocate unique label numbers, and that the keystroke output stream
+supports operations for writing both label definitions, e.g. LBL 03, and
+gotos, e.g. GTO 03. Further, its is assumed that the generate operation
+for the condition will write the keystrokes for evaluating and comparing
+two expressions followed by a conditional command, e.g. X=0?, which will
+only cause execution of the following command if the condition is
+false.</p>
+<pre class="scroll">
+public partial class if_statement: statement
+{
+  public override void generate(program_data data)
+  {
+    int end_label = data.allocate_label();
+    condition.generate(data);
+    if (!else_action.Defined) 
+    {
+      data.output.write_goto(end_label);
+      then_action.generate(data);
+    }
+    else
+    {
+      int else_label = data.allocate_label();
+      data.output.write_goto(else_label);
+      then_action.generate(data);
+      data.output.write_goto(end_label);
+      data.output.write_label(else_label);
+      else_action.Value.generate(data);
+    }
+    data.output.write_label(end_label);
+  } 
+}
+public partial class else_part: generable
+{
+  public void generate(program_data data)
+  {
+    else_statement.generate(data);
+  } 
+}
+</pre>
+<p>When all of the generate methods have been defined for all of the AST
+classes, the compiler is complete. The final compiler can be seen as a
+collection of miniature compilers, one for each language construct
+represented by an AST class. The components of the complete complier can
+now be executed as follows (Exception handling has been omitted).</p>
+<pre class="scroll">
+var source = new source_reader(&lt;string, FileStream or StreamReader&gt;);
+var p      = parsable.parse&lt;program&gt;(source);
+var data   = new program_data();
+p.analyse (data);
+p.generate(data);
+string keystokes = data.output.ToString();
+</pre>
+<p>The parsable objects library supports a number of facilities which
+simplify the development steps described above. As soon as a
+sufficiently complete set of AST classes has been produced to allow the
+language to be parsed, i.e. before analysis and keystroke generation,
+the library can generated the EBNF text of the grammar the AST classes
+define. This is useful both for documentation and as a check that the
+language meets requirements. In addition, the library can generate the
+text of new sets of partial AST classes which implement specified
+interfaces. The analysable and generable versions of the AST classes for
+this compiler were produced using this facility.</p>
+<p>New language features can be added, and parsed via new AST classes
+specifying their syntax, before their analyse and generate methods are
+defined. Thus incremental language evolution is possible. The
+organisation of the compiler project is shown below.</p>
+<img src="figure_1.jpg">
+<p>There are separate folders for each of the three language component
+categories, declarations, statements and expressions (expr). Within each
+folder the definitions of the partial AST classes for syntax, analysis
+and generation are contained in separate files. The support folder
+contains the definitions of the program data class, the exception
+classes for analyser and general compiler errors, and the DM42 source
+builder. The latter is an extended version of the source builder class
+provided by the parsable objects library, which is itself an extension
+of the .Net StringBuilder class. It implements the operations required
+for keystroke output. The user interface is provided by the compiler
+form and the standard.init file containing the standard function
+definitions is copied to the executable folder when the project is
+built.</p>
+</body>
+</html>

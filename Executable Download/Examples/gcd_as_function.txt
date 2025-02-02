@@ -1,0 +1,13 @@
+program gcd_as_function()
+{
+  var a = 36;
+  var b = 24;
+  func gcd()
+  {
+    while (a != b)
+      if (a > b) a = a - b; 
+      else       b = b - a;
+    return a;
+  }
+  return gcd();
+}

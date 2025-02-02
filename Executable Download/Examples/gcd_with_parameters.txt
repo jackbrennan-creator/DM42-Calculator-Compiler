@@ -1,0 +1,11 @@
+program gcd_with_parameters()
+{
+  func gcd(x, y)
+  {
+    while (x != y)
+      if (x > y) x = x - y; 
+      else       y = y - x;
+    return x;
+  }
+  return gcd(24, 36);
+}

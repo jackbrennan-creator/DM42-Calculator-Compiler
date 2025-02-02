@@ -1,0 +1,25 @@
+program plotter()
+{
+  var x_max = recall("ResX") - 1;
+  var y_max = recall("ResY") - 1;
+  
+  func f(x)
+  {
+   return (y_max / 2) * sin(8 * x);
+  }
+  
+  func void plot()
+  {
+    var x0 = x_max / 2;
+    var y0 = y_max / 2;
+    v_line(x0);
+    h_line(y0);
+    for x = 0 to x_max do
+    {
+      var y = f(x - x0) + y0;
+      if (y <= y_max) pixel(y_max - y, x);
+    }
+  } 
+  degrees();
+  plot();
+}

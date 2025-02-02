@@ -1,0 +1,18 @@
+program lcm_with_parameters(a, b)
+{
+
+  func gcd(x, y)
+  {
+    while (x != y)
+      if (x > y) x = x - y; 
+      else       y = y - x;
+    return x;
+  }
+
+  func lcm(x, y)
+  {
+    return x * (y / gcd(x, y));
+  }
+
+  return lcm(a, b);
+}
