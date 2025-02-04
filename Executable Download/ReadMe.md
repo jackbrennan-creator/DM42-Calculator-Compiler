@@ -120,6 +120,8 @@ calculator's screen.
     
 **System Requirements**
 
+Supports Windows and runs on MacOS and Linux under Wine.
+
 The executables require .Net Framework 3.5 to be installed. Your system
 should prompt you and offer to do this if it is not present.
 
