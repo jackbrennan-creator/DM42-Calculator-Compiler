@@ -567,5 +567,77 @@ for keystroke output. The user interface is provided by the compiler
 form and the standard.init file containing the standard function
 definitions is copied to the executable folder when the project is
 built.</p>
+<h3>Extending the Compiler</h3>
+<p>Adding new features to the high-level language involves the
+definition of new syntax, analysis and generator components for each new
+language component. For example, to add a "repeat" statement which will
+execute its controlled statements one or more times (a while statement
+executes its controlled statement zero or more times), the first thing
+to do is to add a new parsable class to the existing AST classes.</p>
+<pre class="scroll">
+public partial class repeat_statement: statement
+{
+  [Parse(1, &quot;repeat&quot;)] public reserved_word   repeat_word;
+  [Parse(2)          ] public List&lt;statement&gt; controlled_statements;
+  [Parse(3, &quot;until&quot;) ] public reserved_word   until_word;
+  [Parse(4)          ] public comparison      condition;
+  [Parse(5, &quot;;&quot;)     ] public punctuation     semicolon;
+}
+</pre>
+<p>This defines a new statement which consists of a sequence of
+statements contained between the reserved words "repeat" and "until" and
+followed by a termination condition, followed by a semicolon. For
+example:-</p>
+<pre class="scroll">
+repeat
+  b = b * a;
+  a = a – 1;
+until a = 0;
+</pre>
+<p>Adding this new class within the existing statement class will allow
+the compiler to parse such statements, but they will not be analysed and
+no keystrokes will be generated for them. The next step is therefore to
+augment the repeat_statement class to make it analysable.</p>
+<pre class="scroll">
+public partial class repeat_statement: statement
+{
+  public override void analyse(program_data data)
+  {
+    foreach (var s in controlled_statements) s.analyse(data);
+    condition.analyse(data);
+  }
+}
+</pre>
+<p>The new definition shown here overrides the default analyse method
+for statements. This will cause all of the statements between "repeat"
+and "until" to be analysed, followed by analysis of the condition. Any
+use of undeclared variables or functions will be flagged by this
+process.</p>
+<p>Finally the repeat_statement class can be made generable so that
+keystrokes can be generated to allow such statements to be executed.</p>
+<pre class="scroll">
+public partial class repeat_statement: statement
+{
+  public override void generate(program_data data)
+  {
+    int continue_label = data.allocate_label();
+    data.output.write_label(continue_label);
+    foreach (var s in controlled_statements) s.generate(data);
+    condition.generate(data);
+    data.output.write_goto(continue_label);
+  }
+}
+</pre>
+<p>This will generate a new label before the first statement between
+"repeat" and "until". Following this will be the keystrokes for all the
+statements in the list. Generation of the condition will end with a
+conditional command which skips the following goto if the condition is
+true, leading to termination of the repeat loop. If the goto is
+executed, the loop will be repeated from the first statement. As with
+previous examples some details have been omitted here, e.g. the extra
+keystrokes needed to drop unwanted values from the stack after execution
+of the keystrokes generated for the condition.</p>
+<p>Taken together the three new definitions above represent a
+mini-compiler for repeat statements.</p>
 </body>
 </html>
