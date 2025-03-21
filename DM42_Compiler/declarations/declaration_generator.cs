@@ -41,6 +41,7 @@
         parameter_list.Reverse();
         foreach (var p in parameter_list) p.generate(data);
         definition.generate(data);
+        if (!has_return) data.output.write_return();
         data.output.write_label(skip_label);
       }
     }
